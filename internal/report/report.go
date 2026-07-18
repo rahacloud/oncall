@@ -240,54 +240,70 @@ func CSV(days []Day, outPath string) error {
 	return cw.Error()
 }
 
-// Count prints the per-person day tally, split into working/holiday/unknown.
-func Count(w io.Writer, days []Day, start, end jalali.Date, useHolidays bool) {
-	type tally struct{ total, working, holiday, unknown int }
-	m := map[string]*tally{}
+// PersonCount is one person's day tally over a range.
+type PersonCount struct {
+	Person  string `json:"person"`
+	Total   int    `json:"total"`
+	Working int    `json:"working"`
+	Holiday int    `json:"holiday"`
+	Unknown int    `json:"unknown"`
+}
+
+// Tally aggregates resolved days into per-person counts, sorted by total desc.
+func Tally(days []Day, useHolidays bool) []PersonCount {
+	idx := map[string]*PersonCount{}
 	var order []string
 	for _, d := range days {
 		if d.Person == "(gap)" || d.Person == "(empty)" || d.Person == "" {
 			continue
 		}
-		t, ok := m[d.Person]
+		t, ok := idx[d.Person]
 		if !ok {
-			t = &tally{}
-			m[d.Person] = t
+			t = &PersonCount{Person: d.Person}
+			idx[d.Person] = t
 			order = append(order, d.Person)
 		}
-		t.total++
+		t.Total++
 		switch {
 		case !useHolidays || (d.IsHoliday != nil && !*d.IsHoliday):
-			t.working++
+			t.Working++
 		case d.IsHoliday != nil && *d.IsHoliday:
-			t.holiday++
+			t.Holiday++
 		default:
-			t.unknown++
+			t.Unknown++
 		}
 	}
-	sort.SliceStable(order, func(i, j int) bool { return m[order[i]].total > m[order[j]].total })
+	sort.SliceStable(order, func(i, j int) bool { return idx[order[i]].Total > idx[order[j]].Total })
+	out := make([]PersonCount, 0, len(order))
+	for _, name := range order {
+		out = append(out, *idx[name])
+	}
+	return out
+}
 
+// Count prints the per-person day tally, split into working/holiday/unknown.
+func Count(w io.Writer, days []Day, start, end jalali.Date, useHolidays bool) {
+	rows := Tally(days, useHolidays)
 	fmt.Fprintf(w, "On-call day counts %s -> %s (inclusive)\n%s\n", start, end, strings.Repeat("=", 60))
-	if len(order) == 0 {
+	if len(rows) == 0 {
 		fmt.Fprintln(w, "No shifts matched that window (check the range).")
 		return
 	}
 	if useHolidays {
 		fmt.Fprintf(w, "%-24s%7s%9s%9s%9s\n", "person", "total", "working", "holiday", "unknown")
 		var tot, hol, unk int
-		for _, name := range order {
-			t := m[name]
-			fmt.Fprintf(w, "%-24s%7d%9d%9d%9d\n", name, t.total, t.working, t.holiday, t.unknown)
-			tot, hol, unk = tot+t.total, hol+t.holiday, unk+t.unknown
+		for _, t := range rows {
+			fmt.Fprintf(w, "%-24s%7d%9d%9d%9d\n", t.Person, t.Total, t.Working, t.Holiday, t.Unknown)
+			tot, hol, unk = tot+t.Total, hol+t.Holiday, unk+t.Unknown
 		}
 		fmt.Fprintln(w, strings.Repeat("-", 60))
 		fmt.Fprintf(w, "%-24s%7d%9d%9d%9d\n", "TOTAL", tot, tot-hol-unk, hol, unk)
 	} else {
 		fmt.Fprintf(w, "%-24s%7s\n", "person", "days")
 		var tot int
-		for _, name := range order {
-			fmt.Fprintf(w, "%-24s%7d\n", name, m[name].total)
-			tot += m[name].total
+		for _, t := range rows {
+			fmt.Fprintf(w, "%-24s%7d\n", t.Person, t.Total)
+			tot += t.Total
 		}
 		fmt.Fprintln(w, strings.Repeat("-", 32))
 		fmt.Fprintf(w, "%-24s%7d\n", "TOTAL", tot)

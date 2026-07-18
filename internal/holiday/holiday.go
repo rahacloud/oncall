@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 
 	"github.com/rahacloud/oncall/internal/jalali"
@@ -29,8 +30,10 @@ type record struct {
 	Events    []string `json:"events"`
 }
 
-// Cache memoizes holiday lookups to ~/.cache/oncall/holidays.json.
+// Cache memoizes holiday lookups to ~/.cache/oncall/holidays.json. It is safe
+// for concurrent use.
 type Cache struct {
+	mu      sync.Mutex
 	path    string
 	data    map[string]record
 	dirty   bool
@@ -69,16 +72,22 @@ func (c *Cache) Lookup(d jalali.Date) Info {
 		return Info{IsHoliday: &f}
 	}
 	key := d.String()
+	c.mu.Lock()
 	if r, ok := c.data[key]; ok {
+		c.mu.Unlock()
 		h := r.IsHoliday
 		return Info{IsHoliday: &h, Events: r.Events}
 	}
+	c.mu.Unlock()
+
 	r, ok := c.fetch(d)
 	if !ok {
 		return Info{} // unknown; not cached
 	}
+	c.mu.Lock()
 	c.data[key] = r
 	c.dirty = true
+	c.mu.Unlock()
 	h := r.IsHoliday
 	return Info{IsHoliday: &h, Events: r.Events}
 }
@@ -117,11 +126,15 @@ func (c *Cache) fetch(d jalali.Date) (record, bool) {
 
 // Save persists the cache if anything new was fetched.
 func (c *Cache) Save() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	if !c.dirty {
 		return
 	}
 	_ = os.MkdirAll(filepath.Dir(c.path), 0o755)
 	if b, err := json.MarshalIndent(c.data, "", " "); err == nil {
-		_ = os.WriteFile(c.path, b, 0o644)
+		if os.WriteFile(c.path, b, 0o644) == nil {
+			c.dirty = false
+		}
 	}
 }
