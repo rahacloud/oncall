@@ -10,8 +10,9 @@ Confluence is only involved once, as a migration source: `importer/` reads an
 existing rotation page and writes the initial `schedule.yaml`. After that, edit
 the YAML directly and review changes via pull request.
 
-> **Status:** Phase 1 — own the data. The CLI + schedule format + importer are
-> here. A read-only HTTP API and a web UI are on the roadmap (see below).
+> **Status:** all phases landed — CLI, schedule-as-code, Confluence importer,
+> and a web service (HTTP API + web UI + ICS feed + token-guarded editing),
+> containerized with a Helm chart for rahacloud.
 
 ## Quick start
 
@@ -80,12 +81,64 @@ username, then writes the canonical YAML. The generated `schedule.yaml` is
 gitignored because it contains real names — keep it in a private location if you
 need to share it.
 
+## Web service
+
+`oncall serve` starts an HTTP server with a small web UI, a JSON API, and an ICS
+calendar feed over the same `schedule.yaml`.
+
+```bash
+ONCALL_TOKEN=$(openssl rand -hex 16) \
+  ./oncall serve --schedule schedule.yaml --addr :8080
+# open http://localhost:8080
+```
+
+| Method & path | Auth | Purpose |
+| --- | --- | --- |
+| `GET /` | — | web UI |
+| `GET /healthz` | — | liveness/readiness |
+| `GET /api/current[.txt]` | — | who's on call now (or `?date=1405/4/14`) |
+| `GET /api/range?start=&end=` | — | per-day resolution (JSON) |
+| `GET /api/count?start=&end=` | — | per-person tally (working vs holiday) |
+| `GET /api/schedule` | — | full schedule |
+| `GET /calendar.ics` | — | subscribable calendar (one all-day event per shift) |
+| `POST /api/overrides` | Bearer | add a swap `{start,end,person,note}` |
+| `DELETE /api/overrides/{index}` | Bearer | remove a swap |
+| `POST /api/shifts` | Bearer | add a shift |
+| `PUT /api/people/{id}` | Bearer | upsert a person |
+
+Mutations require `Authorization: Bearer $ONCALL_TOKEN` and persist back to
+`schedule.yaml`. If `ONCALL_TOKEN` is unset the service is **read-only** (writes
+return `403`). Env: `ONCALL_ADDR` (default `:8080`), `ONCALL_SCHEDULE`.
+
+Slack "who's on call" is a one-liner against the text endpoint:
+
+```bash
+curl -s "$ONCALL_URL/api/current.txt"
+```
+
+## Deploying
+
+```bash
+# container (published to ghcr.io/rahacloud/oncall by CI)
+docker build -t oncall .
+docker run -p 8080:8080 -v "$PWD/schedule.yaml:/data/schedule.yaml:ro" oncall
+
+# rahacloud / Kubernetes via Helm
+helm upgrade --install oncall deploy/helm/oncall \
+  --set-file schedule=schedule.yaml \
+  --set ingress.enabled=true --set ingress.host=oncall.rahacloud.ir
+```
+
+The schedule is mounted from a ConfigMap (read-only, GitOps-friendly — render
+your `schedule.yaml` into `existingConfigMap`). To enable the write API, set
+`token` and `persistence.enabled=true` so the schedule lives on a writable volume.
+
 ## Roadmap
 
 - [x] **Phase 1 — own the data:** schedule-as-code YAML, `show`/`csv`/`count`, Confluence importer.
-- [ ] **Phase 2 — read API + UI:** HTTP service ("who's on call now / for a range"), holidays, counts; minimal web page.
-- [ ] **Phase 3 — management:** CRUD for rotations & overrides with auth — fully replaces editing in Confluence.
-- [ ] **Phase 4 — integrations:** ICS calendar feed, Slack "current on-call", API tokens, deploy to rahacloud.
+- [x] **Phase 2 — read API + UI:** HTTP service ("who's on call now / for a range"), holidays, counts, web page.
+- [x] **Phase 3 — management:** add/remove overrides & shifts with a Bearer token — replaces editing in Confluence.
+- [x] **Phase 4 — integrations:** ICS calendar feed, Slack `current.txt`, Docker image, Helm chart for rahacloud.
 
 ## Development
 
