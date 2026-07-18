@@ -27,14 +27,27 @@ Dates are Jalali (e.g. `1405/3/21`); ranges are inclusive. Default subcommand is
 | --- | --- |
 | `show START END` | Per-shift printout, grouped by rotation, with mid-window flags. |
 | `csv START END [-o FILE]` | One row per day: Jalali + Gregorian date, weekday, person, shift, source, holiday flag/name, note. |
-| `count START END` | Per-person day tally, split into working / holiday / unknown. |
+| `count START END` | Per-person day tally, split into working / holiday. |
 
 Flags: `--schedule PATH` (or `$ONCALL_SCHEDULE`, default `schedule.yaml`) and
-`--no-holidays` (skip the holiday lookup and count every day as working).
+`--holidays PATH` (or `$ONCALL_HOLIDAYS`) to enable holiday classification.
 
-Holidays come from [holidayapi.ir](https://holidayapi.ir) and are cached under
-`~/.cache/oncall/holidays.json`. Fridays and official holidays both count as
-holidays.
+## Holidays
+
+Holidays are read from a **local file** you provide — there is no network
+lookup. Without `--holidays`, classification is off and every day counts as a
+working day. See [`holidays.example.yaml`](holidays.example.yaml):
+
+```yaml
+weekends: [Friday]        # recurring weekly non-working days
+dates:                    # specific Jalali dates -> name (name optional)
+  "1405-01-01": Nowruz
+  "1405-01-12": Islamic Republic Day
+```
+
+A day is a holiday if its weekday is in `weekends` or its date is in `dates`.
+Solar-calendar holidays are fixed; lunar (Islamic) holidays move each year, so
+fill them in per year.
 
 ## Schedule format
 
@@ -98,7 +111,8 @@ ONCALL_TOKEN=$(openssl rand -hex 16) \
 
 Mutations require `Authorization: Bearer $ONCALL_TOKEN` and persist back to
 `schedule.yaml`. If `ONCALL_TOKEN` is unset the service is **read-only** (writes
-return `403`). Env: `ONCALL_ADDR` (default `:8080`), `ONCALL_SCHEDULE`.
+return `403`). Env: `ONCALL_ADDR` (default `:8080`), `ONCALL_SCHEDULE`,
+`ONCALL_HOLIDAYS`.
 
 Slack "who's on call" is a one-liner against the text endpoint:
 
@@ -122,6 +136,30 @@ helm upgrade --install oncall deploy/helm/oncall \
 The schedule is mounted from a ConfigMap (read-only, GitOps-friendly — render
 your `schedule.yaml` into `existingConfigMap`). To enable the write API, set
 `token` and `persistence.enabled=true` so the schedule lives on a writable volume.
+
+## Bring your own data (build on the official image)
+
+The published image ships **no schedule or holidays** — those are yours. Keep
+them in your own (private) repo and build a personal image `FROM` the official
+one. The base image's entrypoint is already `oncall serve`, and it looks for
+`/data/schedule.yaml` and `/data/holidays.yaml`:
+
+```dockerfile
+# your-team/oncall-deploy/Dockerfile
+FROM ghcr.io/rahacloud/oncall:latest
+COPY schedule.yaml  /data/schedule.yaml
+COPY holidays.yaml  /data/holidays.yaml   # optional; omit for no holidays
+```
+
+```bash
+docker build -t registry.example.com/team/oncall .
+docker push  registry.example.com/team/oncall
+```
+
+Your data stays in your registry/repo; you only depend on the upstream binary.
+This is the recommended pattern for private rotations — no forking, and you pick
+up new upstream releases by rebuilding. (Equivalently, mount the two files as
+volumes or a ConfigMap instead of baking them in.)
 
 ## Roadmap
 
