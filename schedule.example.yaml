@@ -1,0 +1,72 @@
+# Canonical on-call schedule (schedule-as-code) -- the system of record.
+#
+# Copy this to schedule.yaml (gitignored) and edit it, or generate schedule.yaml
+# from an existing Confluence table with importer/confluence_import.py.
+#
+# Dates are Jalali (Persian) in YYYY-MM-DD. Every range is INCLUSIVE.
+# The data below is fictional sample data.
+
+people:
+  ali.karimi:
+    name: Ali Karimi
+  sara.ahmadi:
+    name: Sara Ahmadi
+  reza.hosseini:
+    name: Reza Hosseini
+  niloofar.jafari:
+    name: Niloofar Jafari
+  mehdi.sadeghi:
+    name: Mehdi Sadeghi
+
+# Each shift assigns one person to an inclusive Jalali date range.
+# `rotation` is an optional cosmetic label used to group the `show` output.
+# `handover_from` records that a shift was handed off part-way through.
+shifts:
+  - start: "1405-03-16"
+    end: "1405-03-22"
+    person: ali.karimi
+    rotation: "16 Khordad - 5 Tir"
+  - start: "1405-03-23"
+    end: "1405-03-25"
+    person: sara.ahmadi
+    rotation: "16 Khordad - 5 Tir"
+  - start: "1405-03-26"
+    end: "1405-03-29"
+    person: reza.hosseini
+    rotation: "16 Khordad - 5 Tir"
+  - start: "1405-03-30"
+    end: "1405-04-01"
+    person: niloofar.jafari
+    rotation: "16 Khordad - 5 Tir"
+  - start: "1405-04-02"
+    end: "1405-04-05"
+    person: mehdi.sadeghi
+    rotation: "16 Khordad - 5 Tir"
+  - start: "1405-04-06"
+    end: "1405-04-08"
+    person: ali.karimi
+    rotation: "6 Tir - 26 Tir"
+  - start: "1405-04-09"
+    end: "1405-04-12"
+    person: sara.ahmadi
+    rotation: "6 Tir - 26 Tir"
+  - start: "1405-04-13"
+    end: "1405-04-15"
+    person: mehdi.sadeghi
+    rotation: "6 Tir - 26 Tir"
+    handover_from: reza.hosseini
+  - start: "1405-04-16"
+    end: "1405-04-19"
+    person: reza.hosseini
+    rotation: "6 Tir - 26 Tir"
+  - start: "1405-04-20"
+    end: "1405-04-26"
+    person: niloofar.jafari
+    rotation: "6 Tir - 26 Tir"
+
+# Overrides win over shifts for any overlapping day (swaps, sick days, ...).
+overrides:
+  - start: "1405-04-02"
+    end: "1405-04-03"
+    person: sara.ahmadi
+    note: "swap: mehdi away"

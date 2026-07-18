@@ -1,0 +1,16 @@
+# The real schedule holds internal names -- keep it out of a public repo.
+/schedule.yaml
+
+# Build output
+/oncall
+/dist/
+
+# Generated CSVs
+*.csv
+
+# Local env / secrets
+.env
+
+# Python importer bytecode
+__pycache__/
+*.pyc
