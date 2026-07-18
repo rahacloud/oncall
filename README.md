@@ -1,18 +1,8 @@
 # oncall
 
-On-call rotation reporting as code. The schedule lives in a version-controlled
-YAML file (`schedule.yaml`) that is the **system of record** — it replaces
-editing an on-call table in Confluence. A small Go CLI reads that file and tells
-you who was on call, exports it, and tallies days per person (splitting working
-days from Iranian public holidays).
+On-call rotation reporting as code. The schedule lives in a version-controlled YAML file (`schedule.yaml`) that is the **system of record** — it replaces editing an on-call table in Confluence. A small Go CLI reads that file and tells you who was on call, exports it, and tallies days per person (splitting working days from Iranian public holidays).
 
-Confluence is only involved once, as a migration source: `importer/` reads an
-existing rotation page and writes the initial `schedule.yaml`. After that, edit
-the YAML directly and review changes via pull request.
-
-> **Status:** all phases landed — CLI, schedule-as-code, Confluence importer,
-> and a web service (HTTP API + web UI + ICS feed + token-guarded editing),
-> containerized with a Helm chart for rahacloud.
+Confluence is only involved once, as a migration source: `importer/` reads an existing rotation page and writes the initial `schedule.yaml`. After that, edit the YAML directly and review changes via pull request.
 
 ## Quick start
 
