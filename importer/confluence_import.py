@@ -199,6 +199,15 @@ def build_rotations(body):
         yield title, year, rows
 
 
+def prettify(name):
+    """Normalize a name for display: split on dots/underscores/spaces and
+    title-case each word. 'sina.amininasab' and 'Navid.shariaty' become
+    'Sina Amininasab' / 'Navid Shariaty'; 'Amirhossein Najafizadeh' is left
+    intact."""
+    parts = re.split(r"[._\s]+", name)
+    return " ".join(p[:1].upper() + p[1:] for p in parts if p)
+
+
 def yaml_scalar(s):
     """Quote a YAML scalar when needed."""
     if s == "" or re.search(r'[:#\[\]{}",&*!|>%@`]', s) or s != s.strip():
@@ -235,7 +244,7 @@ def main():
 
     def note_person(k):
         uid, disp = resolve(k)
-        people.setdefault(uid, disp or uid)
+        people.setdefault(uid, prettify(disp or uid))
         return uid
 
     for title, year, rows in build_rotations(body):
