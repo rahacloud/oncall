@@ -22,13 +22,11 @@ spec:
         - name: oncall
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
-          args:
-            {{- if not .Values.useHolidays }}
-            - --no-holidays
-            {{- end }}
           env:
             - name: ONCALL_SCHEDULE
               value: /data/schedule.yaml
+            - name: ONCALL_HOLIDAYS
+              value: /data/holidays.yaml
             {{- if .Values.token }}
             - name: ONCALL_TOKEN
               valueFrom:

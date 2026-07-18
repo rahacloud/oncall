@@ -5,9 +5,11 @@ image:
   tag: "" # defaults to .Chart.AppVersion
   pullPolicy: IfNotPresent
 
-# Whether to fetch holidays from holidayapi.ir (needs egress). If false, every
-# day counts as a working day.
-useHolidays: true
+# Holidays are read from a local file (no network). Provide the YAML inline here
+# to have it rendered into the schedule ConfigMap and mounted at
+# /data/holidays.yaml. Leave empty for no holiday classification. When using
+# existingConfigMap, add a `holidays.yaml` key to it instead.
+holidays: ""
 
 # The schedule-as-code. Two options:
 #   1. existingConfigMap: name of a ConfigMap holding key `schedule.yaml`
