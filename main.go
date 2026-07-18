@@ -6,12 +6,15 @@ package main
 import (
 	"flag"
 	"fmt"
+	"net/http"
 	"os"
 
 	"github.com/rahacloud/oncall/internal/holiday"
 	"github.com/rahacloud/oncall/internal/jalali"
 	"github.com/rahacloud/oncall/internal/report"
 	"github.com/rahacloud/oncall/internal/schedule"
+	"github.com/rahacloud/oncall/internal/server"
+	"github.com/rahacloud/oncall/internal/store"
 )
 
 const usageText = `oncall - on-call rotation reporter (schedule-as-code)
@@ -20,6 +23,7 @@ Usage:
   oncall [show] START END [flags]     per-shift printout (default)
   oncall csv    START END [-o FILE]   one row per day
   oncall count  START END             per-person day tally (working vs holiday)
+  oncall serve  [flags]               HTTP API + web UI + ICS calendar feed
 
 Dates are Jalali, e.g. 1405/3/21. Ranges are inclusive.
 
@@ -27,6 +31,10 @@ Flags:
   --schedule PATH   schedule YAML (env ONCALL_SCHEDULE, default schedule.yaml)
   --no-holidays     skip holidayapi.ir; treat every day as a working day
   -o, --out FILE    (csv only) write to FILE instead of stdout
+  --addr ADDR       (serve only) listen address (env ONCALL_ADDR, default :8080)
+
+serve reads the mutation token from $ONCALL_TOKEN; when unset, the API is
+read-only (mutation endpoints return 403).
 `
 
 func main() {
@@ -34,7 +42,7 @@ func main() {
 	cmd := "show"
 	if len(args) > 0 {
 		switch args[0] {
-		case "show", "csv", "count":
+		case "show", "csv", "count", "serve":
 			cmd, args = args[0], args[1:]
 		case "-h", "--help":
 			fmt.Print(usageText)
@@ -46,16 +54,24 @@ func main() {
 	fs.Usage = func() { fmt.Fprint(os.Stderr, usageText) }
 	schedPath := fs.String("schedule", envOr("ONCALL_SCHEDULE", "schedule.yaml"), "schedule YAML path")
 	noHolidays := fs.Bool("no-holidays", false, "treat every day as a working day")
-	var out string
+	var out, addr string
 	if cmd == "csv" {
 		fs.StringVar(&out, "o", "", "output file (default stdout)")
 		fs.StringVar(&out, "out", "", "output file (default stdout)")
+	}
+	if cmd == "serve" {
+		fs.StringVar(&addr, "addr", envOr("ONCALL_ADDR", ":8080"), "listen address")
 	}
 
 	// The flag package stops at the first positional, so split them ourselves
 	// and let flags appear in any position (before or after the dates).
 	flagArgs, rest := splitArgs(args)
 	_ = fs.Parse(flagArgs)
+
+	if cmd == "serve" {
+		serve(*schedPath, addr, !*noHolidays)
+		return
+	}
 	if len(rest) < 2 {
 		fatal("need START and END Jalali dates, e.g. oncall 1405/3/21 1405/4/20")
 	}
@@ -92,6 +108,7 @@ func main() {
 var valueFlags = map[string]bool{
 	"-schedule": true, "--schedule": true,
 	"-o": true, "--out": true,
+	"-addr": true, "--addr": true,
 }
 
 // splitArgs separates flag tokens (and their values) from positional args, so
@@ -119,6 +136,25 @@ func contains(s string, c byte) bool {
 		}
 	}
 	return false
+}
+
+func serve(schedPath, addr string, useHolidays bool) {
+	st, err := store.Open(schedPath)
+	if err != nil {
+		fatal(fmt.Sprintf("load schedule: %v", err))
+	}
+	hol := holiday.Open(useHolidays)
+	token := os.Getenv("ONCALL_TOKEN")
+	srv := server.New(st, hol, useHolidays, token)
+
+	mode := "read-only (set ONCALL_TOKEN to enable writes)"
+	if token != "" {
+		mode = "read-write (token set)"
+	}
+	fmt.Fprintf(os.Stderr, "oncall serving %s on %s — %s\n", schedPath, addr, mode)
+	if err := http.ListenAndServe(addr, srv); err != nil {
+		fatal(err.Error())
+	}
 }
 
 func envOr(key, def string) string {

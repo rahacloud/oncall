@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>On-Call</title>
+<style>
+  :root {
+    --bg: #f7f7f8; --card: #fff; --fg: #1a1a1f; --muted: #6b6b76;
+    --border: #e3e3e8; --accent: #3b5bdb; --hol: #e03131; --chip: #eef0fb;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #16161a; --card: #1f1f25; --fg: #ececf1; --muted: #9a9aa6;
+      --border: #2c2c34; --accent: #748ffc; --hol: #ff8787; --chip: #26263a;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; font: 15px/1.5 system-ui, sans-serif; background: var(--bg);
+    color: var(--fg); padding: 24px; max-width: 900px; margin: 0 auto;
+  }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  .sub { color: var(--muted); margin: 0 0 20px; font-size: 13px; }
+  .card {
+    background: var(--card); border: 1px solid var(--border); border-radius: 12px;
+    padding: 18px; margin-bottom: 18px;
+  }
+  .now { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+  .now .who { font-size: 26px; font-weight: 650; }
+  .now .meta { color: var(--muted); font-size: 13px; }
+  label { font-size: 12px; color: var(--muted); display: block; margin-bottom: 4px; }
+  input, button {
+    font: inherit; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--border);
+    background: var(--card); color: var(--fg);
+  }
+  input { width: 130px; }
+  button { cursor: pointer; background: var(--accent); color: #fff; border: none; }
+  button.ghost { background: transparent; color: var(--accent); border: 1px solid var(--border); }
+  .row { display: flex; gap: 12px; align-items: end; flex-wrap: wrap; }
+  table { width: 100%; border-collapse: collapse; margin-top: 6px; font-size: 14px; }
+  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--border); }
+  th { color: var(--muted); font-weight: 600; font-size: 12px; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .chip { background: var(--chip); border-radius: 6px; padding: 1px 7px; font-size: 12px; }
+  .hol { color: var(--hol); }
+  .scroll { overflow-x: auto; }
+  details summary { cursor: pointer; color: var(--muted); font-size: 13px; }
+  .links a { color: var(--accent); margin-right: 14px; font-size: 13px; }
+  .err { color: var(--hol); font-size: 13px; min-height: 18px; }
+  .tok { width: 220px; }
+</style>
+</head>
+<body>
+  <h1>On-Call</h1>
+  <p class="sub">Schedule-as-code · times are Jalali (YYYY/MM/DD)</p>
+
+  <div class="card">
+    <div class="now">
+      <span class="who" id="nowWho">…</span>
+      <span class="meta" id="nowMeta"></span>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="row">
+      <div><label>Start</label><input id="start" placeholder="1405/3/21"></div>
+      <div><label>End</label><input id="end" placeholder="1405/4/20"></div>
+      <button id="go">Load</button>
+    </div>
+    <div class="err" id="err"></div>
+    <h3 style="margin:16px 0 4px;font-size:14px;">Per-person days</h3>
+    <div class="scroll"><table id="count"><thead></thead><tbody></tbody></table></div>
+    <details style="margin-top:14px;">
+      <summary>Day-by-day</summary>
+      <div class="scroll"><table id="days"><thead></thead><tbody></tbody></table></div>
+    </details>
+  </div>
+
+  <div class="card">
+    <details>
+      <summary>Add an override (swap) — needs a token</summary>
+      <div class="row" style="margin-top:12px;">
+        <div><label>Token</label><input class="tok" id="token" type="password" placeholder="ONCALL_TOKEN"></div>
+      </div>
+      <div class="row" style="margin-top:8px;">
+        <div><label>Start</label><input id="ovStart" placeholder="1405/4/2"></div>
+        <div><label>End</label><input id="ovEnd" placeholder="1405/4/3"></div>
+        <div><label>Person id</label><input id="ovPerson" placeholder="ali.karimi"></div>
+        <div><label>Note</label><input id="ovNote" placeholder="swap"></div>
+        <button class="ghost" id="ovAdd">Add</button>
+      </div>
+      <div class="err" id="ovErr"></div>
+    </details>
+  </div>
+
+  <p class="links">
+    <a href="/calendar.ics">📅 Calendar feed (.ics)</a>
+    <a href="/api/current">/api/current</a>
+    <a href="/api/schedule">/api/schedule</a>
+  </p>
+
+<script>
+const $ = id => document.getElementById(id);
+const esc = s => (s ?? "").replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+
+async function loadNow() {
+  try {
+    const d = await (await fetch("/api/current")).json();
+    $("nowWho").textContent = d.person || "—";
+    let meta = `${d.jalali} · ${d.weekday}`;
+    if (d.is_holiday === true) meta += " · holiday" + (d.holiday_name ? ` (${d.holiday_name})` : "");
+    if (d.note) meta += " · " + d.note;
+    $("nowMeta").textContent = meta;
+    $("nowMeta").className = "meta" + (d.is_holiday === true ? " hol" : "");
+  } catch (e) { $("nowWho").textContent = "unavailable"; }
+}
+
+async function load() {
+  $("err").textContent = "";
+  const start = $("start").value.trim(), end = $("end").value.trim();
+  if (!start || !end) { $("err").textContent = "enter start and end"; return; }
+  const qs = `start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}`;
+  const [cRes, dRes] = await Promise.all([fetch("/api/count?"+qs), fetch("/api/range?"+qs)]);
+  const counts = await cRes.json(), days = await dRes.json();
+  if (!cRes.ok) { $("err").textContent = counts.error || "error"; return; }
+
+  $("count").querySelector("thead").innerHTML =
+    "<tr><th>Person</th><th class='num'>Total</th><th class='num'>Working</th><th class='num'>Holiday</th><th class='num'>Unknown</th></tr>";
+  $("count").querySelector("tbody").innerHTML = counts.map(c =>
+    `<tr><td>${esc(c.person)}</td><td class='num'>${c.total}</td><td class='num'>${c.working}</td><td class='num hol'>${c.holiday}</td><td class='num'>${c.unknown}</td></tr>`).join("");
+
+  $("days").querySelector("thead").innerHTML =
+    "<tr><th>Jalali</th><th>Weekday</th><th>Person</th><th>Shift</th><th>Source</th><th>Note</th></tr>";
+  $("days").querySelector("tbody").innerHTML = days.map(d =>
+    `<tr class='${d.is_holiday===true?"hol":""}'><td>${d.jalali}</td><td>${d.weekday}</td><td>${esc(d.person)}</td><td>${esc(d.shift)}</td><td><span class='chip'>${d.source||"—"}</span></td><td>${esc(d.note)}${d.is_holiday===true?" 🏖":""}</td></tr>`).join("");
+}
+
+async function addOverride() {
+  $("ovErr").textContent = "";
+  const token = $("token").value.trim();
+  const body = { start: $("ovStart").value.trim(), end: $("ovEnd").value.trim(),
+                 person: $("ovPerson").value.trim(), note: $("ovNote").value.trim() };
+  const res = await fetch("/api/overrides", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "Authorization": "Bearer " + token },
+    body: JSON.stringify(body),
+  });
+  const j = await res.json().catch(() => ({}));
+  if (!res.ok) { $("ovErr").textContent = j.error || ("HTTP " + res.status); return; }
+  $("ovErr").textContent = "added ✓";
+  loadNow(); if ($("start").value) load();
+}
+
+$("go").onclick = load;
+$("ovAdd").onclick = addOverride;
+loadNow();
+</script>
+</body>
+</html>
