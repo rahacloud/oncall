@@ -126,9 +126,9 @@ async function load() {
   if (!cRes.ok) { $("err").textContent = counts.error || "error"; return; }
 
   $("count").querySelector("thead").innerHTML =
-    "<tr><th>Person</th><th class='num'>Total</th><th class='num'>Working</th><th class='num'>Holiday</th><th class='num'>Unknown</th></tr>";
+    "<tr><th>Person</th><th class='num'>Total</th><th class='num'>Working</th><th class='num'>Holiday</th></tr>";
   $("count").querySelector("tbody").innerHTML = counts.map(c =>
-    `<tr><td>${esc(c.person)}</td><td class='num'>${c.total}</td><td class='num'>${c.working}</td><td class='num hol'>${c.holiday}</td><td class='num'>${c.unknown}</td></tr>`).join("");
+    `<tr><td>${esc(c.person)}</td><td class='num'>${c.total}</td><td class='num'>${c.working}</td><td class='num hol'>${c.holiday}</td></tr>`).join("");
 
   $("days").querySelector("thead").innerHTML =
     "<tr><th>Jalali</th><th>Weekday</th><th>Person</th><th>Shift</th><th>Source</th><th>Note</th></tr>";

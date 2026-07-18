@@ -84,7 +84,7 @@ func find(ivs []interval, t time.Time) *interval {
 
 // ResolveDays expands [start, end] inclusive into one record per day, applying
 // overrides over shifts and classifying holidays.
-func ResolveDays(s *schedule.Schedule, start, end jalali.Date, hol *holiday.Cache) ([]Day, error) {
+func ResolveDays(s *schedule.Schedule, start, end jalali.Date, hol *holiday.Set) ([]Day, error) {
 	shifts, err := shiftIntervals(s)
 	if err != nil {
 		return nil, err
@@ -110,9 +110,9 @@ func ResolveDays(s *schedule.Schedule, start, end jalali.Date, hol *holiday.Cach
 				d.Note = "handover from " + s.DisplayName(iv.handover)
 			}
 		}
-		info := hol.Lookup(jd)
+		info := hol.Lookup(jd, t.Weekday())
 		d.IsHoliday = info.IsHoliday
-		d.HolidayName = strings.Join(info.Events, "; ")
+		d.HolidayName = info.Name
 		days = append(days, d)
 	}
 	return days, nil
@@ -246,11 +246,10 @@ type PersonCount struct {
 	Total   int    `json:"total"`
 	Working int    `json:"working"`
 	Holiday int    `json:"holiday"`
-	Unknown int    `json:"unknown"`
 }
 
 // Tally aggregates resolved days into per-person counts, sorted by total desc.
-func Tally(days []Day, useHolidays bool) []PersonCount {
+func Tally(days []Day) []PersonCount {
 	idx := map[string]*PersonCount{}
 	var order []string
 	for _, d := range days {
@@ -264,13 +263,10 @@ func Tally(days []Day, useHolidays bool) []PersonCount {
 			order = append(order, d.Person)
 		}
 		t.Total++
-		switch {
-		case !useHolidays || (d.IsHoliday != nil && !*d.IsHoliday):
-			t.Working++
-		case d.IsHoliday != nil && *d.IsHoliday:
+		if d.IsHoliday != nil && *d.IsHoliday {
 			t.Holiday++
-		default:
-			t.Unknown++
+		} else {
+			t.Working++
 		}
 	}
 	sort.SliceStable(order, func(i, j int) bool { return idx[order[i]].Total > idx[order[j]].Total })
@@ -281,23 +277,24 @@ func Tally(days []Day, useHolidays bool) []PersonCount {
 	return out
 }
 
-// Count prints the per-person day tally, split into working/holiday/unknown.
-func Count(w io.Writer, days []Day, start, end jalali.Date, useHolidays bool) {
-	rows := Tally(days, useHolidays)
-	fmt.Fprintf(w, "On-call day counts %s -> %s (inclusive)\n%s\n", start, end, strings.Repeat("=", 60))
+// Count prints the per-person day tally. With holidays enabled it splits the
+// total into working vs holiday; otherwise it prints a plain day count.
+func Count(w io.Writer, days []Day, start, end jalali.Date, showHolidays bool) {
+	rows := Tally(days)
+	fmt.Fprintf(w, "On-call day counts %s -> %s (inclusive)\n%s\n", start, end, strings.Repeat("=", 52))
 	if len(rows) == 0 {
 		fmt.Fprintln(w, "No shifts matched that window (check the range).")
 		return
 	}
-	if useHolidays {
-		fmt.Fprintf(w, "%-24s%7s%9s%9s%9s\n", "person", "total", "working", "holiday", "unknown")
-		var tot, hol, unk int
+	if showHolidays {
+		fmt.Fprintf(w, "%-24s%7s%9s%9s\n", "person", "total", "working", "holiday")
+		var tot, hol int
 		for _, t := range rows {
-			fmt.Fprintf(w, "%-24s%7d%9d%9d%9d\n", t.Person, t.Total, t.Working, t.Holiday, t.Unknown)
-			tot, hol, unk = tot+t.Total, hol+t.Holiday, unk+t.Unknown
+			fmt.Fprintf(w, "%-24s%7d%9d%9d\n", t.Person, t.Total, t.Working, t.Holiday)
+			tot, hol = tot+t.Total, hol+t.Holiday
 		}
-		fmt.Fprintln(w, strings.Repeat("-", 60))
-		fmt.Fprintf(w, "%-24s%7d%9d%9d%9d\n", "TOTAL", tot, tot-hol-unk, hol, unk)
+		fmt.Fprintln(w, strings.Repeat("-", 52))
+		fmt.Fprintf(w, "%-24s%7d%9d%9d\n", "TOTAL", tot, tot-hol, hol)
 	} else {
 		fmt.Fprintf(w, "%-24s%7s\n", "person", "days")
 		var tot int

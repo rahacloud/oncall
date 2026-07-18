@@ -29,10 +29,11 @@ Dates are Jalali, e.g. 1405/3/21. Ranges are inclusive.
 
 Flags:
   --schedule PATH   schedule YAML (env ONCALL_SCHEDULE, default schedule.yaml)
-  --no-holidays     skip holidayapi.ir; treat every day as a working day
+  --holidays PATH   holidays YAML (env ONCALL_HOLIDAYS); off when unset
   -o, --out FILE    (csv only) write to FILE instead of stdout
   --addr ADDR       (serve only) listen address (env ONCALL_ADDR, default :8080)
 
+Holidays are read from a local file (no network); see holidays.example.yaml.
 serve reads the mutation token from $ONCALL_TOKEN; when unset, the API is
 read-only (mutation endpoints return 403).
 `
@@ -53,7 +54,7 @@ func main() {
 	fs := flag.NewFlagSet(cmd, flag.ExitOnError)
 	fs.Usage = func() { fmt.Fprint(os.Stderr, usageText) }
 	schedPath := fs.String("schedule", envOr("ONCALL_SCHEDULE", "schedule.yaml"), "schedule YAML path")
-	noHolidays := fs.Bool("no-holidays", false, "treat every day as a working day")
+	holidaysPath := fs.String("holidays", os.Getenv("ONCALL_HOLIDAYS"), "holidays YAML path")
 	var out, addr string
 	if cmd == "csv" {
 		fs.StringVar(&out, "o", "", "output file (default stdout)")
@@ -69,7 +70,7 @@ func main() {
 	_ = fs.Parse(flagArgs)
 
 	if cmd == "serve" {
-		serve(*schedPath, addr, !*noHolidays)
+		serve(*schedPath, *holidaysPath, addr)
 		return
 	}
 	if len(rest) < 2 {
@@ -92,14 +93,14 @@ func main() {
 	case "show":
 		check(report.Show(os.Stdout, sch, start, end))
 	case "csv", "count":
-		hol := holiday.Open(!*noHolidays)
+		hol, err := holiday.Load(*holidaysPath)
+		check(err)
 		days, err := report.ResolveDays(sch, start, end, hol)
 		check(err)
-		hol.Save()
 		if cmd == "csv" {
 			check(report.CSV(days, out))
 		} else {
-			report.Count(os.Stdout, days, start, end, !*noHolidays)
+			report.Count(os.Stdout, days, start, end, hol.Enabled())
 		}
 	}
 }
@@ -107,6 +108,7 @@ func main() {
 // valueFlags are the flags that take a separate-argument value.
 var valueFlags = map[string]bool{
 	"-schedule": true, "--schedule": true,
+	"-holidays": true, "--holidays": true,
 	"-o": true, "--out": true,
 	"-addr": true, "--addr": true,
 }
@@ -138,20 +140,25 @@ func contains(s string, c byte) bool {
 	return false
 }
 
-func serve(schedPath, addr string, useHolidays bool) {
+func serve(schedPath, holidaysPath, addr string) {
 	st, err := store.Open(schedPath)
 	if err != nil {
 		fatal(fmt.Sprintf("load schedule: %v", err))
 	}
-	hol := holiday.Open(useHolidays)
+	hol, err := holiday.Load(holidaysPath)
+	check(err)
 	token := os.Getenv("ONCALL_TOKEN")
-	srv := server.New(st, hol, useHolidays, token)
+	srv := server.New(st, hol, token)
 
 	mode := "read-only (set ONCALL_TOKEN to enable writes)"
 	if token != "" {
 		mode = "read-write (token set)"
 	}
-	fmt.Fprintf(os.Stderr, "oncall serving %s on %s — %s\n", schedPath, addr, mode)
+	holNote := "holidays off"
+	if hol.Enabled() {
+		holNote = "holidays from " + holidaysPath
+	}
+	fmt.Fprintf(os.Stderr, "oncall serving %s on %s — %s, %s\n", schedPath, addr, mode, holNote)
 	if err := http.ListenAndServe(addr, srv); err != nil {
 		fatal(err.Error())
 	}

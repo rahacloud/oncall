@@ -1,140 +1,105 @@
-// Package holiday classifies Jalali days as holiday vs working using
-// holidayapi.ir, with an on-disk cache. Fridays and official holidays both come
-// back as holidays. Lookups are best-effort: a failed fetch yields an unknown
-// (nil) result rather than an error.
+// Package holiday classifies Jalali days as holiday vs working from a local,
+// user-provided description file. There is no network dependency: if no file is
+// given, holiday classification is simply off (every day counts as working).
+//
+// File format (YAML):
+//
+//	# recurring weekly non-working days (Go weekday names, e.g. Friday)
+//	weekends: [Friday]
+//	# specific Jalali holiday dates (YYYY-MM-DD) -> name (name may be empty)
+//	dates:
+//	  "1405-01-01": Nowruz
+//	  "1405-01-12": Islamic Republic Day
 package holiday
 
 import (
-	"encoding/json"
 	"fmt"
-	"io"
-	"net/http"
 	"os"
-	"path/filepath"
-	"sync"
+	"strings"
 	"time"
 
 	"github.com/rahacloud/oncall/internal/jalali"
+	"gopkg.in/yaml.v3"
 )
-
-const api = "https://holidayapi.ir/jalali"
 
 // Info is the classification of a single day.
 type Info struct {
-	IsHoliday *bool // nil = unknown (fetch failed)
-	Events    []string
+	IsHoliday *bool // nil = unknown; here always non-nil
+	Name      string
 }
 
-type record struct {
-	IsHoliday bool     `json:"is_holiday"`
-	Events    []string `json:"events"`
+// Set is an immutable, in-memory holiday table.
+type Set struct {
+	enabled  bool
+	weekends map[time.Weekday]bool
+	dates    map[string]string // canonical jalali key -> name
 }
 
-// Cache memoizes holiday lookups to ~/.cache/oncall/holidays.json. It is safe
-// for concurrent use.
-type Cache struct {
-	mu      sync.Mutex
-	path    string
-	data    map[string]record
-	dirty   bool
-	client  *http.Client
-	enabled bool
+type file struct {
+	Weekends []string          `yaml:"weekends"`
+	Dates    map[string]string `yaml:"dates"`
 }
 
-// Open loads the cache. When enabled is false, every day is reported as working
-// and no network calls are made.
-func Open(enabled bool) *Cache {
-	c := &Cache{
-		path: filepath.Join(cacheDir(), "holidays.json"),
-		data: map[string]record{},
-		// holidayapi.ir is an external service: honor the standard proxy env
-		// (HTTP(S)_PROXY) so this works both direct and behind a corp proxy.
-		client:  &http.Client{Timeout: 20 * time.Second},
-		enabled: enabled,
+var weekdayNames = map[string]time.Weekday{
+	"sunday": time.Sunday, "monday": time.Monday, "tuesday": time.Tuesday,
+	"wednesday": time.Wednesday, "thursday": time.Thursday, "friday": time.Friday,
+	"saturday": time.Saturday,
+}
+
+// Load reads a holiday file. An empty path (or a path that does not exist)
+// yields a disabled Set — holidays off, no error. A present-but-invalid file is
+// an error.
+func Load(path string) (*Set, error) {
+	if path == "" {
+		return &Set{enabled: false}, nil
 	}
-	if b, err := os.ReadFile(c.path); err == nil {
-		_ = json.Unmarshal(b, &c.data)
+	b, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			fmt.Fprintf(os.Stderr, "oncall: holidays file %s not found; holiday classification disabled\n", path)
+			return &Set{enabled: false}, nil
+		}
+		return nil, err
 	}
-	return c
+	var f file
+	if err := yaml.Unmarshal(b, &f); err != nil {
+		return nil, fmt.Errorf("parse holidays %s: %w", path, err)
+	}
+	s := &Set{enabled: true, weekends: map[time.Weekday]bool{}, dates: map[string]string{}}
+	for _, w := range f.Weekends {
+		wd, ok := weekdayNames[strings.ToLower(strings.TrimSpace(w))]
+		if !ok {
+			return nil, fmt.Errorf("holidays %s: unknown weekday %q", path, w)
+		}
+		s.weekends[wd] = true
+	}
+	for k, name := range f.Dates {
+		jd, err := jalali.Parse(k)
+		if err != nil {
+			return nil, fmt.Errorf("holidays %s: bad date %q: %w", path, k, err)
+		}
+		s.dates[jd.String()] = name // canonical YYYY/MM/DD key
+	}
+	return s, nil
 }
 
-func cacheDir() string {
-	if d, err := os.UserCacheDir(); err == nil {
-		return filepath.Join(d, "oncall")
-	}
-	return ".oncall-cache"
-}
+// Enabled reports whether holiday classification is active.
+func (s *Set) Enabled() bool { return s.enabled }
 
-// Lookup classifies a Jalali date.
-func (c *Cache) Lookup(d jalali.Date) Info {
-	if !c.enabled {
-		f := false
+// Lookup classifies a day given its Jalali date and Gregorian weekday.
+func (s *Set) Lookup(d jalali.Date, wd time.Weekday) Info {
+	t, f := true, false
+	if !s.enabled {
 		return Info{IsHoliday: &f}
 	}
-	key := d.String()
-	c.mu.Lock()
-	if r, ok := c.data[key]; ok {
-		c.mu.Unlock()
-		h := r.IsHoliday
-		return Info{IsHoliday: &h, Events: r.Events}
-	}
-	c.mu.Unlock()
-
-	r, ok := c.fetch(d)
-	if !ok {
-		return Info{} // unknown; not cached
-	}
-	c.mu.Lock()
-	c.data[key] = r
-	c.dirty = true
-	c.mu.Unlock()
-	h := r.IsHoliday
-	return Info{IsHoliday: &h, Events: r.Events}
-}
-
-func (c *Cache) fetch(d jalali.Date) (record, bool) {
-	url := fmt.Sprintf("%s/%d/%02d/%02d", api, d.Y, d.M, d.D)
-	resp, err := c.client.Get(url)
-	if err != nil {
-		return record{}, false
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return record{}, false
-	}
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return record{}, false
-	}
-	var raw struct {
-		IsHoliday bool `json:"is_holiday"`
-		Events    []struct {
-			Description string `json:"description"`
-		} `json:"events"`
-	}
-	if err := json.Unmarshal(body, &raw); err != nil {
-		return record{}, false
-	}
-	rec := record{IsHoliday: raw.IsHoliday}
-	for _, e := range raw.Events {
-		if e.Description != "" {
-			rec.Events = append(rec.Events, e.Description)
+	if name, ok := s.dates[d.String()]; ok {
+		if name == "" {
+			name = "Holiday"
 		}
+		return Info{IsHoliday: &t, Name: name}
 	}
-	return rec, true
-}
-
-// Save persists the cache if anything new was fetched.
-func (c *Cache) Save() {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if !c.dirty {
-		return
+	if s.weekends[wd] {
+		return Info{IsHoliday: &t, Name: "Weekend"}
 	}
-	_ = os.MkdirAll(filepath.Dir(c.path), 0o755)
-	if b, err := json.MarshalIndent(c.data, "", " "); err == nil {
-		if os.WriteFile(c.path, b, 0o644) == nil {
-			c.dirty = false
-		}
-	}
+	return Info{IsHoliday: &f}
 }

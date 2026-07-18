@@ -16,18 +16,17 @@ import (
 	"github.com/rahacloud/oncall/internal/store"
 )
 
-// Server bundles the store, holiday cache, and auth config into an http.Handler.
+// Server bundles the store, holiday set, and auth config into an http.Handler.
 type Server struct {
-	store       *store.Store
-	hol         *holiday.Cache
-	useHolidays bool
-	token       string // bearer token required for mutations; "" = read-only
-	mux         *http.ServeMux
+	store *store.Store
+	hol   *holiday.Set
+	token string // bearer token required for mutations; "" = read-only
+	mux   *http.ServeMux
 }
 
 // New wires up the routes. When token is empty, mutation endpoints return 403.
-func New(st *store.Store, hol *holiday.Cache, useHolidays bool, token string) *Server {
-	s := &Server{store: st, hol: hol, useHolidays: useHolidays, token: token, mux: http.NewServeMux()}
+func New(st *store.Store, hol *holiday.Set, token string) *Server {
+	s := &Server{store: st, hol: hol, token: token, mux: http.NewServeMux()}
 	m := s.mux
 
 	m.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) { w.Write([]byte("ok")) })
@@ -75,11 +74,7 @@ func toDTO(d report.Day) dayDTO {
 func today() jalali.Date { return jalali.FromTime(time.Now()) }
 
 func (s *Server) resolve(start, end jalali.Date) ([]report.Day, error) {
-	days, err := report.ResolveDays(s.store.Snapshot(), start, end, s.hol)
-	if s.useHolidays {
-		s.hol.Save()
-	}
-	return days, err
+	return report.ResolveDays(s.store.Snapshot(), start, end, s.hol)
 }
 
 func dateParam(r *http.Request, name string, def jalali.Date) (jalali.Date, error) {
@@ -196,7 +191,7 @@ func (s *Server) handleCount(w http.ResponseWriter, r *http.Request) {
 		badRequest(w, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, report.Tally(days, s.useHolidays))
+	writeJSON(w, http.StatusOK, report.Tally(days))
 }
 
 // --- mutation handlers -----------------------------------------------------

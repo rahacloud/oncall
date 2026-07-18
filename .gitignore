@@ -1,5 +1,7 @@
 # The real schedule holds internal names -- keep it out of a public repo.
 /schedule.yaml
+# Your real holidays file (ship it in your own repo instead; see README).
+/holidays.yaml
 
 # Build output
 /oncall

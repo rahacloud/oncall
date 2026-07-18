@@ -1,0 +1,23 @@
+# Example holidays file. Copy to holidays.yaml (or ship it in your own repo) and
+# pass it with --holidays / $ONCALL_HOLIDAYS. It is optional: with no file,
+# holiday classification is simply off and every day counts as working.
+#
+# There is NO network lookup — this file is the source of truth.
+
+# Recurring weekly non-working days (Go weekday names: Saturday..Friday).
+weekends: [Friday]
+
+# Specific Jalali holiday dates (YYYY-MM-DD) -> name (name may be empty).
+# Fixed solar-calendar Iranian public holidays are listed below; lunar (Islamic)
+# holidays shift ~11 days each year and must be filled in for your year.
+dates:
+  "1405-01-01": Nowruz
+  "1405-01-02": Nowruz
+  "1405-01-03": Nowruz
+  "1405-01-04": Nowruz
+  "1405-01-12": Islamic Republic Day
+  "1405-01-13": Sizdah Bedar (Nature Day)
+  "1405-03-14": Passing of Imam Khomeini
+  "1405-03-15": 15 Khordad Uprising
+  "1405-11-22": Victory of the Islamic Revolution
+  "1405-12-29": Nationalization of the Oil Industry
