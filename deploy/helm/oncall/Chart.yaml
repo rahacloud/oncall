@@ -1,0 +1,6 @@
+apiVersion: v2
+name: oncall
+description: On-call rotation reporting as code — HTTP API, web UI, and ICS feed over a schedule-as-code YAML.
+type: application
+version: 0.1.0
+appVersion: "0.1.0"

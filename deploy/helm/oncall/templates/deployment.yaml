@@ -1,0 +1,77 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "oncall.fullname" . }}
+  labels: {{- include "oncall.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels: {{- include "oncall.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels: {{- include "oncall.selectorLabels" . | nindent 8 }}
+      {{- with .Values.podAnnotations }}
+      annotations: {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: oncall
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args:
+            {{- if not .Values.useHolidays }}
+            - --no-holidays
+            {{- end }}
+          env:
+            - name: ONCALL_SCHEDULE
+              value: /data/schedule.yaml
+            {{- if .Values.token }}
+            - name: ONCALL_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "oncall.fullname" . }}-token
+                  key: ONCALL_TOKEN
+            {{- end }}
+          ports:
+            - name: http
+              containerPort: 8080
+          readinessProbe:
+            httpGet: { path: /healthz, port: http }
+            initialDelaySeconds: 2
+          livenessProbe:
+            httpGet: { path: /healthz, port: http }
+            initialDelaySeconds: 5
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources: {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - name: schedule
+              mountPath: /data
+              {{- if not .Values.persistence.enabled }}
+              readOnly: true
+              {{- end }}
+      volumes:
+        - name: schedule
+          {{- if .Values.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ include "oncall.fullname" . }}
+          {{- else }}
+          configMap:
+            name: {{ include "oncall.scheduleConfigMap" . }}
+          {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity: {{- toYaml . | nindent 8 }}
+      {{- end }}

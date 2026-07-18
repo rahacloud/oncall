@@ -1,0 +1,8 @@
+.git
+oncall
+dist/
+*.csv
+schedule.yaml
+.env
+deploy/
+**/*_test.go

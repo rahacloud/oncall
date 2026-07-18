@@ -1,0 +1,10 @@
+{{- if not .Values.existingConfigMap }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "oncall.fullname" . }}-schedule
+  labels: {{- include "oncall.labels" . | nindent 4 }}
+data:
+  schedule.yaml: |
+{{ .Values.schedule | indent 4 }}
+{{- end }}

@@ -1,0 +1,57 @@
+replicaCount: 1
+
+image:
+  repository: ghcr.io/rahacloud/oncall
+  tag: "" # defaults to .Chart.AppVersion
+  pullPolicy: IfNotPresent
+
+# Whether to fetch holidays from holidayapi.ir (needs egress). If false, every
+# day counts as a working day.
+useHolidays: true
+
+# The schedule-as-code. Two options:
+#   1. existingConfigMap: name of a ConfigMap holding key `schedule.yaml`
+#      (recommended — GitOps renders your real schedule into it).
+#   2. schedule: inline schedule.yaml contents (used only when existingConfigMap
+#      is empty). The default below is a tiny placeholder.
+existingConfigMap: ""
+schedule: |
+  people:
+    example.person: { name: Example Person }
+  shifts:
+    - { start: "1405-01-01", end: "1405-12-29", person: example.person, rotation: "placeholder" }
+  overrides: []
+
+# Mutation API (add/remove overrides & shifts). Leave empty for a read-only
+# service. NOTE: writes persist to schedule.yaml, so enabling this also requires
+# a writable mount (persistence.enabled=true); a ConfigMap mount is read-only.
+token: ""
+
+persistence:
+  enabled: false
+  size: 64Mi
+  storageClass: ""
+
+service:
+  type: ClusterIP
+  port: 80
+
+ingress:
+  enabled: false
+  className: ""
+  host: oncall.example.com
+  annotations: {}
+  tls: false
+
+resources:
+  requests:
+    cpu: 10m
+    memory: 32Mi
+  limits:
+    cpu: 200m
+    memory: 128Mi
+
+podAnnotations: {}
+nodeSelector: {}
+tolerations: []
+affinity: {}
