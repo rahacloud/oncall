@@ -1,4 +1,4 @@
-# oncall
+# 🔔 oncall
 
 On-call rotation reporting as code. The schedule lives in a version-controlled YAML file (`schedule.yaml`) that is the **system of record** — it replaces editing an on-call table in Confluence. A small Go CLI reads that file and tells you who was on call, exports it, and tallies days per person (splitting working days from Iranian public holidays).
 
