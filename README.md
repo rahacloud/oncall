@@ -1,4 +1,4 @@
-# 🔔 oncall
+# 🔔 On Call
 
 On-call rotation reporting as code. The schedule lives in a version-controlled YAML file (`schedule.yaml`) that is the **system of record** — it replaces editing an on-call table in Confluence. A small Go CLI reads that file and tells you who was on call, exports it, and tallies days per person (splitting working days from Iranian public holidays).
 
@@ -15,13 +15,11 @@ go build -o oncall .
 ./oncall csv   1405/3/21 1405/4/20 --schedule schedule.example.yaml -o out.csv
 ```
 
-Copy `schedule.example.yaml` to `schedule.yaml` (gitignored) and make it yours,
-or generate it from Confluence (see [Importing](#importing-from-confluence)).
+Copy `schedule.example.yaml` to `schedule.yaml` (gitignored) and make it yours, or generate it from Confluence (see [Importing](#importing-from-confluence)).
 
 ## Commands
 
-Dates are Jalali (e.g. `1405/3/21`); ranges are inclusive. Default subcommand is
-`show`, so `oncall 1405/3/21 1405/4/20` works too.
+Dates are Jalali (e.g. `1405/3/21`); ranges are inclusive. Default subcommand is `show`, so `oncall 1405/3/21 1405/4/20` works too.
 
 | Command | Output |
 | --- | --- |
@@ -34,9 +32,7 @@ Flags: `--schedule PATH` (or `$ONCALL_SCHEDULE`, default `schedule.yaml`) and
 
 ## Holidays
 
-Holidays are read from a **local file** you provide — there is no network
-lookup. Without `--holidays`, classification is off and every day counts as a
-working day. See [`holidays.example.yaml`](holidays.example.yaml):
+Holidays are read from a **local file** you provide — there is no network lookup. Without `--holidays`, classification is off and every day counts as a working day. See [`holidays.example.yaml`](holidays.example.yaml):
 
 ```yaml
 weekends: [Friday]        # recurring weekly non-working days
@@ -45,9 +41,7 @@ dates:                    # specific Jalali dates -> name (name optional)
   "1405-01-12": Islamic Republic Day
 ```
 
-A day is a holiday if its weekday is in `weekends` or its date is in `dates`.
-Solar-calendar holidays are fixed; lunar (Islamic) holidays move each year, so
-fill them in per year.
+A day is a holiday if its weekday is in `weekends` or its date is in `dates`. Solar-calendar holidays are fixed; lunar (Islamic) holidays move each year, so fill them in per year.
 
 ## Schedule format
 
@@ -71,18 +65,14 @@ overrides:                            # win over shifts on overlapping days
 
 ## Importing from Confluence
 
-The importer is a one-shot migration. Configure it via a `.env` file (see
-[`.env.example`](.env.example)), then:
+The importer is a one-shot migration. Configure it via a `.env` file (see [`.env.example`](.env.example)), then:
 
 ```bash
 cd importer
 ./confluence_import.py -o ../schedule.yaml
 ```
 
-It resolves every shift to absolute Jalali dates and every user key to a
-username, then writes the canonical YAML. The generated `schedule.yaml` is
-gitignored because it contains real names — keep it in a private location if you
-need to share it.
+It resolves every shift to absolute Jalali dates and every user key to a username, then writes the canonical YAML. The generated `schedule.yaml` is gitignored because it contains real names — keep it in a private location if you need to share it.
 
 ## Web service
 
