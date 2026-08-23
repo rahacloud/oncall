@@ -93,7 +93,7 @@ ONCALL_TOKEN=$(openssl rand -hex 16) \
 | `GET /api/range?start=&end=` | — | per-day resolution (JSON) |
 | `GET /api/count?start=&end=` | — | per-person tally (working vs holiday) |
 | `GET /api/schedule` | — | full schedule |
-| `GET /calendar.ics` | — | subscribable calendar (one all-day event per shift) |
+| `GET /calendar.ics` | — | live RFC 5545 feed (resolved: shifts + overrides + holidays); `?download=1` for a one-time file |
 | `POST /api/overrides` | Bearer | add a swap `{start,end,person,note}` |
 | `DELETE /api/overrides/{index}` | Bearer | remove a swap |
 | `POST /api/shifts` | Bearer | add a shift |
@@ -103,6 +103,15 @@ Mutations require `Authorization: Bearer $ONCALL_TOKEN` and persist back to
 `schedule.yaml`. If `ONCALL_TOKEN` is unset the service is **read-only** (writes
 return `403`). Env: `ONCALL_ADDR` (default `:8080`), `ONCALL_SCHEDULE`,
 `ONCALL_HOLIDAYS`.
+
+**Live calendar feed.** `/calendar.ics` is a subscribable RFC 5545 feed, not a
+static export: it resolves shifts, overrides (swaps), and holidays over a
+rolling window on every request and coalesces contiguous days into all-day
+events, so a subscribed calendar tracks changes automatically. Subscribe with
+the `webcal://` form of the URL (the web UI's **Subscribe** link does this);
+the feed advertises an hourly refresh (`REFRESH-INTERVAL`/`X-PUBLISHED-TTL`) and
+supports conditional GETs (`ETag`/`304`) so pollers only re-download on change.
+Use `?download=1` for a one-time import instead.
 
 Slack "who's on call" is a one-liner against the text endpoint:
 
