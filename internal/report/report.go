@@ -21,7 +21,8 @@ type Day struct {
 	J           jalali.Date
 	G           time.Time
 	Weekday     string
-	Person      string
+	Person      string // display name (see PersonID for the schedule key)
+	PersonID    string // schedule person id; "" on gap days
 	Shift       string
 	Source      string
 	Note        string
@@ -100,10 +101,12 @@ func ResolveDays(s *schedule.Schedule, start, end jalali.Date, hol *holiday.Set)
 		d := Day{J: jd, G: t, Weekday: t.Weekday().String(), Person: "(gap)"}
 		if iv := find(ovs, t); iv != nil {
 			d.Person = s.DisplayName(iv.person)
+			d.PersonID = iv.person
 			d.Source = "override"
 			d.Note = iv.note
 		} else if iv := find(shifts, t); iv != nil {
 			d.Person = s.DisplayName(iv.person)
+			d.PersonID = iv.person
 			d.Shift = iv.rotation
 			d.Source = "schedule"
 			if iv.handover != "" {

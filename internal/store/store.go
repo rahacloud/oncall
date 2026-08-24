@@ -4,16 +4,19 @@ package store
 
 import (
 	"fmt"
+	"os"
 	"sync"
+	"time"
 
 	"github.com/rahacloud/oncall/internal/schedule"
 )
 
 // Store guards a schedule and persists every mutation back to its YAML file.
 type Store struct {
-	mu    sync.RWMutex
-	path  string
-	sched *schedule.Schedule
+	mu        sync.RWMutex
+	path      string
+	sched     *schedule.Schedule
+	updatedAt time.Time // bumped on every mutation; seeds the ICS feed's DTSTAMP/ETag
 }
 
 // Open loads the schedule at path.
@@ -22,7 +25,11 @@ func Open(path string) (*Store, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Store{path: path, sched: s}, nil
+	updated := time.Now()
+	if fi, err := os.Stat(path); err == nil {
+		updated = fi.ModTime()
+	}
+	return &Store{path: path, sched: s, updatedAt: updated}, nil
 }
 
 // Snapshot returns a deep copy safe to read without holding the lock.
@@ -30,6 +37,15 @@ func (s *Store) Snapshot() *schedule.Schedule {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.sched.Clone()
+}
+
+// SnapshotWithVersion returns a deep copy together with the data version (last
+// mutation time), read atomically. The version drives the ICS feed's DTSTAMP,
+// LAST-MODIFIED, SEQUENCE, and ETag so the body is byte-stable between changes.
+func (s *Store) SnapshotWithVersion() (*schedule.Schedule, time.Time) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.sched.Clone(), s.updatedAt
 }
 
 // mutate applies fn under the write lock, persists, and keeps the new state only
@@ -43,6 +59,7 @@ func (s *Store) mutate(fn func(*schedule.Schedule)) error {
 		return err
 	}
 	s.sched = next
+	s.updatedAt = time.Now()
 	return nil
 }
 
