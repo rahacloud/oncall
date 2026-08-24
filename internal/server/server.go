@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"strconv"
+	"sync/atomic"
 	"time"
 
 	"github.com/rahacloud/oncall/internal/holiday"
@@ -17,16 +18,19 @@ import (
 )
 
 // Server bundles the store, holiday set, and auth config into an http.Handler.
+// The holiday set is held behind an atomic pointer so the file watcher can swap
+// in a freshly loaded set without racing in-flight reads.
 type Server struct {
 	store *store.Store
-	hol   *holiday.Set
+	hol   atomic.Pointer[holiday.Set]
 	token string // bearer token required for mutations; "" = read-only
 	mux   *http.ServeMux
 }
 
 // New wires up the routes. When token is empty, mutation endpoints return 403.
 func New(st *store.Store, hol *holiday.Set, token string) *Server {
-	s := &Server{store: st, hol: hol, token: token, mux: http.NewServeMux()}
+	s := &Server{store: st, token: token, mux: http.NewServeMux()}
+	s.hol.Store(hol)
 	m := s.mux
 
 	m.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) { w.Write([]byte("ok")) })
@@ -74,8 +78,12 @@ func toDTO(d report.Day) dayDTO {
 func today() jalali.Date { return jalali.FromTime(time.Now()) }
 
 func (s *Server) resolve(start, end jalali.Date) ([]report.Day, error) {
-	return report.ResolveDays(s.store.Snapshot(), start, end, s.hol)
+	return report.ResolveDays(s.store.Snapshot(), start, end, s.hol.Load())
 }
+
+// SetHolidays swaps in a freshly loaded holiday set. The file watcher calls it
+// when the holidays file changes; subsequent reads pick up the new set.
+func (s *Server) SetHolidays(hol *holiday.Set) { s.hol.Store(hol) }
 
 func dateParam(r *http.Request, name string, def jalali.Date) (jalali.Date, error) {
 	v := r.URL.Query().Get(name)

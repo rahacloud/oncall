@@ -52,7 +52,7 @@ func (s *Server) handleICS(w http.ResponseWriter, r *http.Request) {
 	start := jalali.FromTime(now.AddDate(0, 0, -icsPastDays))
 	end := jalali.FromTime(now.AddDate(0, 0, icsFutureDays))
 
-	days, err := report.ResolveDays(sch, start, end, s.hol)
+	days, err := report.ResolveDays(sch, start, end, s.hol.Load())
 	if err != nil {
 		http.Error(w, "resolve failed", http.StatusInternalServerError)
 		return

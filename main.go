@@ -4,10 +4,12 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"net/http"
 	"os"
+	"time"
 
 	"github.com/rahacloud/oncall/internal/holiday"
 	"github.com/rahacloud/oncall/internal/jalali"
@@ -15,6 +17,7 @@ import (
 	"github.com/rahacloud/oncall/internal/schedule"
 	"github.com/rahacloud/oncall/internal/server"
 	"github.com/rahacloud/oncall/internal/store"
+	"github.com/rahacloud/oncall/internal/watch"
 )
 
 const usageText = `oncall - on-call rotation reporter (schedule-as-code)
@@ -32,10 +35,13 @@ Flags:
   --holidays PATH   holidays YAML (env ONCALL_HOLIDAYS); off when unset
   -o, --out FILE    (csv only) write to FILE instead of stdout
   --addr ADDR       (serve only) listen address (env ONCALL_ADDR, default :8080)
+  --watch DUR       (serve only) reload files this often; 0 disables
+                    (env ONCALL_WATCH_INTERVAL, default 2s)
 
 Holidays are read from a local file (no network); see holidays.example.yaml.
 serve reads the mutation token from $ONCALL_TOKEN; when unset, the API is
-read-only (mutation endpoints return 403).
+read-only (mutation endpoints return 403). While serving, edits to the schedule
+and holidays files are picked up automatically -- no restart needed.
 `
 
 func main() {
@@ -55,13 +61,14 @@ func main() {
 	fs.Usage = func() { fmt.Fprint(os.Stderr, usageText) }
 	schedPath := fs.String("schedule", envOr("ONCALL_SCHEDULE", "schedule.yaml"), "schedule YAML path")
 	holidaysPath := fs.String("holidays", os.Getenv("ONCALL_HOLIDAYS"), "holidays YAML path")
-	var out, addr string
+	var out, addr, watchDur string
 	if cmd == "csv" {
 		fs.StringVar(&out, "o", "", "output file (default stdout)")
 		fs.StringVar(&out, "out", "", "output file (default stdout)")
 	}
 	if cmd == "serve" {
 		fs.StringVar(&addr, "addr", envOr("ONCALL_ADDR", ":8080"), "listen address")
+		fs.StringVar(&watchDur, "watch", envOr("ONCALL_WATCH_INTERVAL", "2s"), "file reload interval; 0 disables")
 	}
 
 	// The flag package stops at the first positional, so split them ourselves
@@ -70,7 +77,11 @@ func main() {
 	_ = fs.Parse(flagArgs)
 
 	if cmd == "serve" {
-		serve(*schedPath, *holidaysPath, addr)
+		watchInterval, err := time.ParseDuration(watchDur)
+		if err != nil {
+			fatal(fmt.Sprintf("bad --watch %q: %v", watchDur, err))
+		}
+		serve(*schedPath, *holidaysPath, addr, watchInterval)
 		return
 	}
 	if len(rest) < 2 {
@@ -140,7 +151,7 @@ func contains(s string, c byte) bool {
 	return false
 }
 
-func serve(schedPath, holidaysPath, addr string) {
+func serve(schedPath, holidaysPath, addr string, watchInterval time.Duration) {
 	st, err := store.Open(schedPath)
 	if err != nil {
 		fatal(fmt.Sprintf("load schedule: %v", err))
@@ -150,6 +161,28 @@ func serve(schedPath, holidaysPath, addr string) {
 	token := os.Getenv("ONCALL_TOKEN")
 	srv := server.New(st, hol, token)
 
+	watchNote := "watch off"
+	if watchInterval > 0 {
+		w := watch.New(watchInterval, func(f string, a ...any) {
+			fmt.Fprintf(os.Stderr, "oncall: "+f+"\n", a...)
+		})
+		w.Add(schedPath, st.Reload)
+		if holidaysPath != "" {
+			w.Add(holidaysPath, func() error {
+				ns, err := holiday.Load(holidaysPath)
+				if err != nil {
+					return err
+				}
+				srv.SetHolidays(ns)
+				return nil
+			})
+		}
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		go w.Run(ctx)
+		watchNote = "watching files every " + watchInterval.String()
+	}
+
 	mode := "read-only (set ONCALL_TOKEN to enable writes)"
 	if token != "" {
 		mode = "read-write (token set)"
@@ -158,7 +191,7 @@ func serve(schedPath, holidaysPath, addr string) {
 	if hol.Enabled() {
 		holNote = "holidays from " + holidaysPath
 	}
-	fmt.Fprintf(os.Stderr, "oncall serving %s on %s — %s, %s\n", schedPath, addr, mode, holNote)
+	fmt.Fprintf(os.Stderr, "oncall serving %s on %s — %s, %s, %s\n", schedPath, addr, mode, holNote, watchNote)
 	if err := http.ListenAndServe(addr, srv); err != nil {
 		fatal(err.Error())
 	}
