@@ -32,7 +32,7 @@
   .now .who { font-size: 26px; font-weight: 650; }
   .now .meta { color: var(--muted); font-size: 13px; }
   label { font-size: 12px; color: var(--muted); display: block; margin-bottom: 4px; }
-  input, button {
+  input, button, select {
     font: inherit; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--border);
     background: var(--card); color: var(--fg);
   }
@@ -49,6 +49,7 @@
   .scroll { overflow-x: auto; }
   details summary { cursor: pointer; color: var(--muted); font-size: 13px; }
   .links a { color: var(--accent); margin-right: 14px; font-size: 13px; }
+  .links a[aria-disabled="true"] { opacity: .45; pointer-events: none; }
   .err { color: var(--hol); font-size: 13px; min-height: 18px; }
   .tok { width: 220px; }
 </style>
@@ -96,8 +97,27 @@
     </details>
   </div>
 
+  <div class="card">
+    <div class="row" style="justify-content: space-between;">
+      <div class="links">
+        <strong style="font-size:13px;">Everyone</strong>
+        <a id="calSubscribe" href="/calendar.ics">📅 Subscribe</a>
+        <a href="/calendar.ics?download=1" download="oncall.ics">⬇︎ Download .ics</a>
+      </div>
+      <div class="row" style="align-items: end;">
+        <div>
+          <label for="calUser">Per-person feed</label>
+          <select id="calUser"><option value="">Choose a person…</option></select>
+        </div>
+        <div class="links">
+          <a id="calUserSubscribe" href="#" aria-disabled="true">📅 Subscribe</a>
+          <a id="calUserDownload" href="#" aria-disabled="true">⬇︎ Download</a>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <p class="links">
-    <a href="/calendar.ics">📅 Calendar feed (.ics)</a>
     <a href="/api/current">/api/current</a>
     <a href="/api/schedule">/api/schedule</a>
   </p>
@@ -105,6 +125,40 @@
 <script>
 const $ = id => document.getElementById(id);
 const esc = s => (s ?? "").replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+
+// webcal:// makes the OS hand the feed to the calendar app as a subscription
+// (periodic refresh) rather than a one-time download.
+const webcal = path => location.origin.replace(/^http/, "webcal") + path;
+$("calSubscribe").href = webcal("/calendar.ics");
+
+// Per-person feed: populate the dropdown from the schedule's people, then point
+// the subscribe/download links at /calendar.ics?user=<id> for the selection.
+async function loadPeople() {
+  try {
+    const sch = await (await fetch("/api/schedule")).json();
+    const sel = $("calUser"), people = sch.people || {};
+    Object.keys(people).sort().forEach(id => {
+      const o = document.createElement("option");
+      o.value = id; o.textContent = people[id].name || id;
+      sel.appendChild(o);
+    });
+    sel.onchange = updateUserLinks;
+  } catch (e) { /* dropdown stays empty; everyone feed still works */ }
+}
+
+function updateUserLinks() {
+  const id = $("calUser").value;
+  const sub = $("calUserSubscribe"), dl = $("calUserDownload");
+  if (!id) {
+    [sub, dl].forEach(a => { a.setAttribute("aria-disabled", "true"); a.removeAttribute("href"); });
+    return;
+  }
+  const q = "user=" + encodeURIComponent(id);
+  sub.href = webcal("/calendar.ics?" + q); sub.removeAttribute("aria-disabled");
+  dl.href = "/calendar.ics?" + q + "&download=1";
+  dl.setAttribute("download", "oncall-" + id + ".ics");
+  dl.removeAttribute("aria-disabled");
+}
 
 async function loadNow() {
   try {
@@ -157,6 +211,7 @@ async function addOverride() {
 $("go").onclick = load;
 $("ovAdd").onclick = addOverride;
 loadNow();
+loadPeople();
 </script>
 </body>
 </html>
