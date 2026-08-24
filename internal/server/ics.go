@@ -12,6 +12,7 @@ import (
 
 	"github.com/rahacloud/oncall/internal/jalali"
 	"github.com/rahacloud/oncall/internal/report"
+	"github.com/rahacloud/oncall/internal/schedule"
 )
 
 //go:embed static/index.html
@@ -39,8 +40,11 @@ func (s *Server) handleIndex(w http.ResponseWriter, _ *http.Request) {
 // mutations (DTSTAMP is seeded from the store's data version), which makes the
 // ETag/If-None-Match conditional-GET dance meaningful for polling clients.
 //
-// ?download=1 flips Content-Disposition to attachment (one-time import);
-// otherwise it is served inline for webcal:// subscription.
+// ?user=<id> narrows the feed to one person (matched by schedule id,
+// case-insensitively); an unknown id is a 404, a known id with no shifts in the
+// window is a valid empty calendar. ?download=1 flips Content-Disposition to
+// attachment (one-time import); otherwise it is served inline for webcal://
+// subscription.
 func (s *Server) handleICS(w http.ResponseWriter, r *http.Request) {
 	sch, version := s.store.SnapshotWithVersion()
 
@@ -53,25 +57,70 @@ func (s *Server) handleICS(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "resolve failed", http.StatusInternalServerError)
 		return
 	}
-	body := buildICS(days, version)
+
+	calName, filename := "On-Call", "oncall.ics"
+	if user := strings.TrimSpace(r.URL.Query().Get("user")); user != "" {
+		id, ok := knownPersonIDs(sch)[strings.ToLower(user)]
+		if !ok {
+			http.Error(w, "unknown user: "+user, http.StatusNotFound)
+			return
+		}
+		days = filterByPersonID(days, id)
+		calName = "On-Call — " + sch.DisplayName(id)
+		filename = "oncall-" + id + ".ics"
+	}
+	body := buildICS(days, version, calName)
 
 	sum := sha1.Sum(body)
 	etag := `"` + hex.EncodeToString(sum[:]) + `"`
 
+	disposition := "inline"
+	if r.URL.Query().Get("download") != "" {
+		disposition = "attachment"
+	}
 	h := w.Header()
 	h.Set("Content-Type", "text/calendar; charset=utf-8")
 	h.Set("Cache-Control", "public, max-age=3600")
 	h.Set("ETag", etag)
-	if r.URL.Query().Get("download") != "" {
-		h.Set("Content-Disposition", `attachment; filename="oncall.ics"`)
-	} else {
-		h.Set("Content-Disposition", `inline; filename="oncall.ics"`)
-	}
+	h.Set("Content-Disposition", fmt.Sprintf("%s; filename=%q", disposition, filename))
 	if r.Header.Get("If-None-Match") == etag {
 		w.WriteHeader(http.StatusNotModified)
 		return
 	}
 	w.Write(body)
+}
+
+// knownPersonIDs maps every known person id (lowercased) to its canonical id. A
+// person counts as known if they key the people map or are referenced by any
+// shift or override -- someone can have shifts without a people entry.
+func knownPersonIDs(sch *schedule.Schedule) map[string]string {
+	ids := make(map[string]string)
+	add := func(id string) {
+		if id != "" {
+			ids[strings.ToLower(id)] = id
+		}
+	}
+	for id := range sch.People {
+		add(id)
+	}
+	for _, sh := range sch.Shifts {
+		add(sh.Person)
+	}
+	for _, o := range sch.Overrides {
+		add(o.Person)
+	}
+	return ids
+}
+
+// filterByPersonID keeps only the days assigned to the given person id.
+func filterByPersonID(days []report.Day, id string) []report.Day {
+	out := days[:0:0]
+	for _, d := range days {
+		if strings.EqualFold(d.PersonID, id) {
+			out = append(out, d)
+		}
+	}
+	return out
 }
 
 // run is a maximal streak of consecutive days sharing the same assignment.
@@ -108,7 +157,7 @@ func coalesce(days []report.Day) []run {
 	return runs
 }
 
-func buildICS(days []report.Day, version time.Time) []byte {
+func buildICS(days []report.Day, version time.Time, calName string) []byte {
 	stamp := version.UTC().Format("20060102T150405Z")
 	seq := version.Unix()
 
@@ -118,7 +167,7 @@ func buildICS(days []report.Day, version time.Time) []byte {
 	writeLine(&b, "PRODID:"+icsProdID)
 	writeLine(&b, "CALSCALE:GREGORIAN")
 	writeLine(&b, "METHOD:PUBLISH")
-	writeLine(&b, "X-WR-CALNAME:On-Call")
+	writeLine(&b, "X-WR-CALNAME:"+icsEscape(calName))
 	writeLine(&b, "X-WR-TIMEZONE:UTC")
 	writeLine(&b, "REFRESH-INTERVAL;VALUE=DURATION:"+icsRefresh)
 	writeLine(&b, "X-PUBLISHED-TTL:"+icsRefresh)

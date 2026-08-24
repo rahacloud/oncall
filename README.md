@@ -93,7 +93,7 @@ ONCALL_TOKEN=$(openssl rand -hex 16) \
 | `GET /api/range?start=&end=` | — | per-day resolution (JSON) |
 | `GET /api/count?start=&end=` | — | per-person tally (working vs holiday) |
 | `GET /api/schedule` | — | full schedule |
-| `GET /calendar.ics` | — | live RFC 5545 feed (resolved: shifts + overrides + holidays); `?download=1` for a one-time file |
+| `GET /calendar.ics` | — | live RFC 5545 feed (resolved: shifts + overrides + holidays); `?user=<id>` for one person, `?download=1` for a one-time file |
 | `POST /api/overrides` | Bearer | add a swap `{start,end,person,note}` |
 | `DELETE /api/overrides/{index}` | Bearer | remove a swap |
 | `POST /api/shifts` | Bearer | add a shift |
@@ -112,6 +112,12 @@ the `webcal://` form of the URL (the web UI's **Subscribe** link does this);
 the feed advertises an hourly refresh (`REFRESH-INTERVAL`/`X-PUBLISHED-TTL`) and
 supports conditional GETs (`ETag`/`304`) so pollers only re-download on change.
 Use `?download=1` for a one-time import instead.
+
+**Per-person feed.** Add `?user=<id>` (the schedule person id, e.g.
+`?user=ali.karimi`, case-insensitive) to subscribe to just one person's shifts;
+an unknown id returns `404`, a known id with no upcoming shifts returns an empty
+calendar. The web UI has a people dropdown that builds this URL for you, next to
+the "everyone" feed.
 
 Slack "who's on call" is a one-liner against the text endpoint:
 
