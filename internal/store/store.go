@@ -44,6 +44,7 @@ func (s *Store) Reload() error {
 	}
 	s.mu.Lock()
 	s.sched = ns
+	s.updatedAt = time.Now()
 	s.mu.Unlock()
 	return nil
 }
