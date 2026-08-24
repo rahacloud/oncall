@@ -25,6 +25,22 @@ func Open(path string) (*Store, error) {
 	return &Store{path: path, sched: s}, nil
 }
 
+// Reload re-reads the schedule from disk and replaces the in-memory copy. The
+// file watcher calls this when the schedule file changes underneath us -- an
+// external edit, a GitOps sync, or a Kubernetes ConfigMap update. On a parse
+// error the previous good copy is kept and the error is returned, so a bad save
+// never takes the served schedule down.
+func (s *Store) Reload() error {
+	ns, err := schedule.Load(s.path)
+	if err != nil {
+		return err
+	}
+	s.mu.Lock()
+	s.sched = ns
+	s.mu.Unlock()
+	return nil
+}
+
 // Snapshot returns a deep copy safe to read without holding the lock.
 func (s *Store) Snapshot() *schedule.Schedule {
 	s.mu.RLock()

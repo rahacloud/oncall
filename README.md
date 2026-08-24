@@ -102,7 +102,14 @@ ONCALL_TOKEN=$(openssl rand -hex 16) \
 Mutations require `Authorization: Bearer $ONCALL_TOKEN` and persist back to
 `schedule.yaml`. If `ONCALL_TOKEN` is unset the service is **read-only** (writes
 return `403`). Env: `ONCALL_ADDR` (default `:8080`), `ONCALL_SCHEDULE`,
-`ONCALL_HOLIDAYS`.
+`ONCALL_HOLIDAYS`, `ONCALL_WATCH_INTERVAL` (default `2s`).
+
+**Hot reload.** While serving, the schedule and holidays files are watched and
+reloaded automatically — edit the YAML (or update the mounted Kubernetes
+ConfigMap) and the next request reflects it, no restart required. A bad edit
+(unparseable YAML) is logged and ignored; the last good copy keeps serving.
+Reloading polls file modification times (`--watch DUR`, `0` disables), which
+follows symlinks so it catches ConfigMap updates that inode-based watchers miss.
 
 Slack "who's on call" is a one-liner against the text endpoint:
 
