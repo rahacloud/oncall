@@ -188,6 +188,10 @@ go build ./...
 go test ./...
 ```
 
+## Who is behind oncall
+
+`oncall` is built and maintained by [Raha Cloud](https://rahacloud.com/en), an infrastructure and DevOps consulting team. If you would rather have someone set up and operate your on-call, monitoring or Kubernetes for you, [get in touch](https://rahacloud.com/en#contact).
+
 ## License
 
 MIT — see [LICENSE](LICENSE).
